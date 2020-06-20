@@ -12,3 +12,26 @@ pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/
 中国科学院 : http://pypi.mirrors.opencas.cn/simple/
 清华大学 : https://pypi.tuna.tsinghua.edu.cn/simple/
 ```
+```
+pip freeze > requirements.txt
+```
+3. 数据库迁移
+```
+创建迁移存储库:
+flask db init
+生成迁移脚本:
+flask db migrate -m "add users table"
+将迁移脚本应用到数据库中:
+flask db upgrade
+说明： flask db downgrade 命令可以回滚上次的迁移
+```
+## RESTful API设计
+HTTP方法 | 资源URL | 说明
+---|---|---
+`GET` | `/api/users` | 返回所有用户的集合
+`POST` | `/api/users` | 注册一个新用户
+`GET` | `/api/users/<id>` | 返回一个用户
+`PUT` | `/api/users/<id>` | 修改一个用户
+`DELETE` | `/api/users/<id>` | 删除一个用户
+## API认证
+使用`Flask-HTTPAuth`
