@@ -33,5 +33,15 @@ HTTP方法 | 资源URL | 说明
 `GET` | `/api/users/<id>` | 返回一个用户
 `PUT` | `/api/users/<id>` | 修改一个用户
 `DELETE` | `/api/users/<id>` | 删除一个用户
+我们的`博客文章资源`将提供以下几个 API：
+
+HTTP方法 | 资源URL | 说明
+---|---|---
+`GET` | `/api/posts` | 返回所有文章的集合
+`POST` | `/api/posts` | 添加一个新文章
+`GET` | `/api/posts/<id>` | 返回一篇文章
+`PUT` | `/api/posts/<id>` | 修改一篇文章
+`DELETE` | `/api/posts/<id>` | 删除一篇文章
+
 ## API认证
 使用`Flask-HTTPAuth`

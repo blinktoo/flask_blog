@@ -6,13 +6,13 @@
 # @Software: PyCharm
 import re
 
-from flask import request, jsonify, url_for
+from flask import request, jsonify, url_for, g
 
-from app import db
 from app.api import bp
 from app.api.auth import token_auth
-from app.api.errors import bad_request
+from app.api.errors import bad_request, error_response
 from app.models import User
+from app.extensions import db
 
 
 @bp.route('/users', methods=['POST'])
@@ -64,6 +64,9 @@ def get_user(id):
     get_or_404: 查询 如果没有查询到会返回一个404的错误页面
     但是我们需要返回一个json自定义404报错信息
     '''
+    user = User.query.get_or_404(id)
+    if g.current_user == user:
+        return jsonify(User.query.get_or_404(id).to_dict(include_email=True))
     return jsonify(User.query.get_or_404(id).to_dict())
 
 @bp.route('/users/<int:id>', methods=['PUT'])
@@ -90,13 +93,19 @@ def update_user(id):
         message['email'] = 'Please use a different email address.'
     if message:
         return bad_request(message)
-
+    print(data)
     user.from_dict(data, new_user=False)
     db.session.commit()
+    print("sdas")
     return jsonify(user.to_dict())
 
 @bp.route('/users/<int:id>', methods=['DELETE'])
 @token_auth.login_required
 def delete_user(id):
     '''删除一个用户'''
-    pass
+    user = User.query.get_or_404(id)
+    if g.current_user != user:
+        return error_response(403)
+    db.session.delete(user)
+    db.session.commit()
+    return '', 204
