@@ -24,7 +24,7 @@ class PaginatedAPIMixin(object):
     '''
     @staticmethod
     def to_collection_dict(query, page, per_page, endpoint, **kwargs):
-        resources = query.paginate(page, per_page, False)
+        resources = query.paginate(page, per_page)
         data = {
             'items': [item.to_dict() for item in resources.items],
             '_meta': {
@@ -44,6 +44,13 @@ class PaginatedAPIMixin(object):
         }
         return data
 
+followers = db.Table(
+    'followers',
+    db.Column('follower_id', db.Integer, db.ForeignKey('users.id')),
+    db.Column('followed_id', db.Integer, db.ForeignKey('users.id')),
+    db.Column('timestamp', db.DateTime, default=datetime.utcnow)
+)
+
 class User(PaginatedAPIMixin, db.Model):
     __tablename__ = 'users'
 
@@ -60,7 +67,13 @@ class User(PaginatedAPIMixin, db.Model):
     # cascade 用于级联删除，当删除user时，该user下面的所有posts都会被级联删除
     posts = db.relationship('Post', backref='author', lazy='dynamic',
                             cascade='all, delete-orphan')
-
+    # followeds 是该用户关注了哪些用户列表
+    # followers 是该用户的粉丝列表
+    followeds = db.relationship(
+        'User', secondary=followers,
+        primaryjoin=(followers.c.follower_id == id),
+        secondaryjoin=(followers.c.followed_id == id),
+        backref=db.backref('followers', lazy='dynamic'), lazy='dynamic')
 
     def __repr__(self):
         return '<User {}>'.format(self.username)
@@ -85,9 +98,15 @@ class User(PaginatedAPIMixin, db.Model):
             'about_me': self.about_me,
             'member_since': self.member_since.isoformat() + 'Z',
             'last_seen': self.last_seen.isoformat() + 'Z',
+            'posts_count': self.posts.count(),
+            'followed_posts_count': self.followed_posts.count(),
+            'followeds_count': self.followeds.count(),
+            'followers_count': self.followers.count(),
             '_links': {
                 'self': url_for('api.get_user', id=self.id),
-                'avatar': self.avatar(128)
+                'avatar': self.avatar(128),
+                'followeds': url_for('api.get_followeds', id=self.id),
+                'followers': url_for('api.get_followers', id=self.id)
             }
         }
         if include_email:
@@ -109,7 +128,9 @@ class User(PaginatedAPIMixin, db.Model):
         now = datetime.utcnow()
         payload = {
             'user_id': self.id,
-            'name': self.name if self.name else self.username,
+            'user_name': self.name if self.name else self.username,
+            'user_avatar': base64.b64encode(self.avatar(24).
+                                            encode('utf-8')).decode('utf-8'),
             'exp': now + timedelta(seconds=expires_in),
             'iat': now
         }
@@ -121,13 +142,43 @@ class User(PaginatedAPIMixin, db.Model):
     @staticmethod
     def verify_jwt(token):
         try:
+            # 从token中解码，获取使用get_jwt加密过的用户信息
             payload = jwt.decode(
                 token,
                 current_app.config['SECRET_KEY'],
                 algorithms=['HS256'])
-        except jwt.exceptions.ExpiredSignatureError as e:
+        except (jwt.exceptions.ExpiredSignatureError,
+                jwt.exceptions.InvalidSignatureError,
+                jwt.exceptions.DecodeError) as e:
+            # Token过期，或被人修改，那么签名验证也会失败
             return None
         return User.query.get(payload.get('user_id'))
+
+    def is_following(self, user):
+        '''判断当前用户是否已经关注了 user 这个用户对象，如果关注了，下面表达式左边是1，否则是0'''
+        return self.followeds.filter(
+            followers.c.followed_id == user.id).count() > 0
+
+    def follow(self, user):
+        '''当前用户开始关注 user 这个用户对象'''
+        if not self.is_following(user):
+            self.followeds.append(user)
+
+    def unfollow(self, user):
+        '''当前用户取消关注 user 这个用户对象'''
+        if self.is_following(user):
+            self.followeds.remove(user)
+
+    @property
+    def followed_posts(self):
+        '''获取当前用户的关注者的所有博客列表'''
+        followed = Post.query.join(
+            followers, (followers.c.followed_id == Post.author_id)).filter(
+                followers.c.follower_id == self.id)
+        # 包含当前用户自己的博客列表
+        # own = Post.query.filter_by(user_id=self.id)
+        # return followed.union(own).order_by(Post.timestamp.desc())
+        return followed.order_by(Post.timestamp.desc())
 
 
 class Post(PaginatedAPIMixin, db.Model):
@@ -171,6 +222,7 @@ class Post(PaginatedAPIMixin, db.Model):
         }
         return data
 
+    # 看self里面有没有title summary body这些，没有给他加一个
     def from_dict(self, data):
         for field in ['title', 'summary', 'body']:
             if field in data:

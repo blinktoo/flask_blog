@@ -5,13 +5,14 @@
 # @File    : users.py
 # @Software: PyCharm
 import re
+from datetime import datetime
 
-from flask import request, jsonify, url_for, g
+from flask import request, jsonify, url_for, g, current_app
 
 from app.api import bp
 from app.api.auth import token_auth
 from app.api.errors import bad_request, error_response
-from app.models import User
+from app.models import User, Post
 from app.extensions import db
 
 
@@ -67,6 +68,9 @@ def get_user(id):
     user = User.query.get_or_404(id)
     if g.current_user == user:
         return jsonify(User.query.get_or_404(id).to_dict(include_email=True))
+    data = user.to_dict()
+    data['is_following'] = g.current_user.is_following(user)
+    return jsonify(data)
     return jsonify(User.query.get_or_404(id).to_dict())
 
 @bp.route('/users/<int:id>', methods=['PUT'])
@@ -93,10 +97,9 @@ def update_user(id):
         message['email'] = 'Please use a different email address.'
     if message:
         return bad_request(message)
-    print(data)
+
     user.from_dict(data, new_user=False)
     db.session.commit()
-    print("sdas")
     return jsonify(user.to_dict())
 
 @bp.route('/users/<int:id>', methods=['DELETE'])
@@ -109,3 +112,122 @@ def delete_user(id):
     db.session.delete(user)
     db.session.commit()
     return '', 204
+
+###
+# 关注 / 取消关注
+###
+@bp.route('/follow/<int:id>', methods=['GET'])
+@token_auth.login_required
+def follow(id):
+    '''开始关注一个用户'''
+    user = User.query.get_or_404(id)
+    if g.current_user == user:
+        return bad_request('You cannot follow yourself.')
+    if g.current_user.is_following(user):
+        return bad_request('You have already followed that user.')
+    g.current_user.follow(user)
+    db.session.commit()
+    return jsonify({
+        'status': 'success',
+        'message': 'You are now following %d.' % id
+    })
+
+
+@bp.route('/unfollow/<int:id>', methods=['GET'])
+@token_auth.login_required
+def unfollow(id):
+    '''取消关注一个用户'''
+    user = User.query.get_or_404(id)
+    if g.current_user == user:
+        return bad_request('You cannot unfollow yourself.')
+    if not g.current_user.is_following(user):
+        return bad_request('You are not following this user.')
+    g.current_user.unfollow(user)
+    db.session.commit()
+    return jsonify({
+        'status': 'success',
+        'message': 'You are not following %d anymore.' % id
+    })
+
+
+###
+# 用户关注了谁、用户的粉丝
+###
+@bp.route('/users/<int:id>/followeds/', methods=['GET'])
+@token_auth.login_required
+def get_followeds(id):
+    user = User.query.get_or_404(id)
+    page = request.args.get('page', 1, type=int)
+    per_page = min(
+        request.args.get(
+            'per_page', current_app.config['USERS_PER_PAGE'], type=int), 100)
+    data = User.to_collection_dict(
+        user.followeds, page, per_page, 'api.get_followeds', id=id)
+    # 为每个 followed 添加 is_following 标志位
+    for item in data['items']:
+        item['is_following'] = g.current_user.is_following(
+            User.query.get(item['id']))
+        # 获取用户开始关注 followed 的时间
+        res = db.engine.execute(
+            "select * from followers where follower_id={} and followed_id={}".
+            format(user.id, item['id']))
+        item['timestamp'] = datetime.strptime(
+            str(list(res)[0][2]).encode('ascii').decode('ascii'), '%Y-%m-%d %H:%M:%S')
+    return jsonify(data)
+
+
+@bp.route('/users/<int:id>/followers/', methods=['GET'])
+@token_auth.login_required
+def get_followers(id):
+    user = User.query.get_or_404(id)
+    page = request.args.get('page', 1, type=int)
+    per_page = min(
+        request.args.get(
+            'per_page', current_app.config['USERS_PER_PAGE'], type=int), 100)
+    data = User.to_collection_dict(
+        user.followers, page, per_page, 'api.get_followers', id=id)
+    # 为每个 follower 添加 is_following 标志位
+    for item in data['items']:
+        item['is_following'] = g.current_user.is_following(
+            User.query.get(item['id']))
+        # 获取 follower 开始关注该用户的时间
+        res = db.engine.execute(
+            "select * from followers where follower_id={} and followed_id={}".
+            format(item['id'], user.id))
+        # print(list(res)[0][2])
+        item['timestamp'] = datetime.strptime(
+            # 本来这里直接写的list(res)[0][2],但是一直报argument1must be str就转来转去好像就好了
+            str(list(res)[0][2]).encode('ascii').decode('ascii'), '%Y-%m-%d %H:%M:%S')
+    return jsonify(data)
+
+
+###
+# 与用户资源相关的资源
+##
+@bp.route('/users/<int:id>/posts/', methods=['GET'])
+@token_auth.login_required
+def get_user_posts(id):
+    '''返回该用户的所有博客文章列表'''
+    user = User.query.get_or_404(id)
+    page = request.args.get('page', 1, type=int)
+    per_page = min(
+        request.args.get(
+            'per_page', current_app.config['POSTS_PER_PAGE'], type=int), 100)
+    data = Post.to_collection_dict(
+        user.posts.order_by(Post.timestamp.desc()), page, per_page,
+        'api.get_user_posts', id=id)
+    return jsonify(data)
+
+
+@bp.route('/users/<int:id>/followeds-posts/', methods=['GET'])
+def get_user_followed_posts(id):
+    user = User.query.get_or_404(id)
+    page = request.args.get('page', 1, type=int)
+    per_page = min(
+        request.args.get(
+            'per_page', current_app.config['POSTS_PER_PAGE'], type=int), 100)
+    data = Post.to_collection_dict(
+        user.followed_posts.order_by(Post.timestamp.desc()), page, per_page,
+        'api.get_user_followed_posts', id=id)
+    return jsonify(data)
+

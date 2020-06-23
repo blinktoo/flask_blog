@@ -6,11 +6,10 @@
 # @Software: PyCharm
 from flask import jsonify
 from werkzeug.http import HTTP_STATUS_CODES
-
 from app.api import bp
 from app.extensions import db
 
-
+# 构建错误响应
 def error_response(status_code, message=None):
     payload = {'error': HTTP_STATUS_CODES.get(status_code, 'Unknown error')}
     if message:

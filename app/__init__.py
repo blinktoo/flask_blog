@@ -27,6 +27,7 @@ def create_app(config_class=None):
 
 
 def configure_app(app, config_class):
+    # 由config_class来配置app
     app.config.from_object(config_class)
     # 不检查路由中最后是否有斜杠/
     app.url_map.strict_slashes = False

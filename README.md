@@ -45,3 +45,9 @@ HTTP方法 | 资源URL | 说明
 
 ## API认证
 使用`Flask-HTTPAuth`
+
+## 单元测试
+```
+flask test --coverage
+```
+输入之后会在项目目录下生成一个tmp的文件夹，在里面的coverage\index.html里面有单元测试报告

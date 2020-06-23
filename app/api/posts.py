@@ -4,7 +4,7 @@
 # @Author  : 南风有时起
 # @File    : posts.py
 # @Software: PyCharm
-from flask import request, jsonify, url_for, g
+from flask import request, jsonify, url_for, g, current_app
 from app.api import bp
 from app.api.auth import token_auth
 from app.api.errors import error_response, bad_request
@@ -44,8 +44,12 @@ def create_post():
 def get_posts():
     '''返回文章集合，分页'''
     page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 10, type=int), 100)
-    data = Post.to_collection_dict(Post.query.order_by(Post.timestamp.desc()), page, per_page, 'api.get_posts')
+    per_page = min(
+        request.args.get(
+            'per_page', current_app.config['POSTS_PER_PAGE'], type=int), 100)
+    data = Post.to_collection_dict(
+        Post.query.order_by(Post.timestamp.desc()), page, per_page,
+        'api.get_posts')
     return jsonify(data)
 
 @bp.route('/posts/<int:id>', methods=['GET'])

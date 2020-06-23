@@ -14,6 +14,7 @@ from app.models import User
 basic_auth = HTTPBasicAuth()
 token_auth = HTTPTokenAuth()
 
+# 验证用户名和密码
 @basic_auth.verify_password
 def verify_password(username, password):
     '''
@@ -26,6 +27,12 @@ def verify_password(username, password):
     g.current_user = user
     return user.check_password(password)
 
+@basic_auth.error_handler
+def basic_auth_error():
+    '''用于在认证失败的情况下返回错误响应'''
+    return error_response(401)
+
+# 验证token
 @token_auth.verify_token
 def verify_token(token):
     '''用于检查用户请求是否有token，并且token真实存在，还在有效期内'''
@@ -35,11 +42,6 @@ def verify_token(token):
         g.current_user.ping()
         db.session.commit()
     return g.current_user is not None
-
-@basic_auth.error_handler
-def basic_auth_error():
-    '''用于在认证失败的情况下返回错误响应'''
-    return error_response(401)
 
 @token_auth.error_handler
 def token_auth_error():
